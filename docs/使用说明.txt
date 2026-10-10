@@ -259,3 +259,9 @@ GIF 每帧最多 256 色，仿真云图的渐变可能有轻微色差；
 需要动图时：用裁剪结果生成 GIF → 设置时长与宽度 → 生成 GIF
 
 开发者：无春夏
+
+制作不易，如果这个工具对你有帮助，欢迎到 GitHub 项目页面
+点一颗 Star（星星）支持一下，感谢你的鼓励！
+
+GitHub 项目地址：
+https://github.com/busterclun/cfd-image-cropper
