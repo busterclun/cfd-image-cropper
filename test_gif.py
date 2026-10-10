@@ -33,14 +33,14 @@ class GifTests(unittest.TestCase):
                 tree = next(w for w in widgets if w.winfo_name() == "gif_images")
                 def button(text):
                     return next(w for w in widgets if w.winfo_class() == "TButton" and w.cget("text") == text)
-                self.assertEqual([tree.item(i, "values")[1] for i in tree.get_children()], ["1.png", "2.png", "10.png"])
-                self.assertTrue(all(tree.item(i, "values")[0] == "☑" for i in tree.get_children()))
+                self.assertEqual([tree.item(i, "values")[0] for i in tree.get_children()], ["1.png", "2.png", "10.png"])
+                self.assertTrue(all(tree.item(i, "image")[0] == str(tree.selection_icons[True]) for i in tree.get_children()))
                 button("取消全选").invoke()
                 with patch.object(app, "start_gif") as start:
                     button("生成 GIF").invoke()
                     start.assert_not_called()
                 button("全选").invoke()
-                self.assertTrue(all(tree.item(i, "values")[0] == "☑" for i in tree.get_children()))
+                self.assertTrue(all(tree.item(i, "image")[0] == str(tree.selection_icons[True]) for i in tree.get_children()))
                 # 取消第二张，只保留第一张和第十张。
                 root.update()
                 x, y, w, h = tree.bbox("1")

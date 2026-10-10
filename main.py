@@ -831,18 +831,31 @@ class CropperApp:
         selection_text = tk.StringVar()
         list_frame = ttk.Frame(frame)
         list_frame.pack(fill="both", expand=True)
-        images = ttk.Treeview(list_frame, columns=("checked", "filename"), show="headings",
-                              selectmode="browse", height=1, name="gif_images")
-        images.heading("checked", text="选择")
-        images.heading("filename", text="图片名称（点击一行勾选 / 取消）")
-        images.column("checked", width=50, stretch=False, anchor="center")
+        list_style = ttk.Style(popup)
+        list_style.configure("GifImages.Treeview", rowheight=26)
+        list_style.map("GifImages.Treeview", background=[("selected", "#eef3ff")],
+                       foreground=[("selected", "#17212b")])
+        images = ttk.Treeview(list_frame, columns=("filename",), show="tree headings",
+                              selectmode="browse", height=1, name="gif_images", style="GifImages.Treeview")
+        images.heading("#0", text="选择")
+        images.heading("filename", text="图片名称（宝蓝色：已选；白色：未选）")
+        images.column("#0", width=58, stretch=False)
         images.column("filename", width=380, minwidth=180)
+        # 用图片绘制实心色块，避免不同 Windows 字体的勾选符号过小。
+        icons = {}
+        for checked in (True, False):
+            with Image.new("RGBA", (20, 20), (0, 0, 0, 0)) as icon:
+                ImageDraw.Draw(icon).rectangle((1, 1, 18, 18),
+                                                fill=SELECTION_COLOR if checked else "white",
+                                                outline=SELECTION_COLOR if checked else "#8b95a5", width=2)
+                icons[checked] = ImageTk.PhotoImage(icon)
+        images.selection_icons = icons  # 保留引用直到窗口关闭。
         scroll = ttk.Scrollbar(list_frame, orient="vertical", command=images.yview)
         images.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
         images.pack(side="left", fill="both", expand=True)
         for index, path in enumerate(files):
-            images.insert("", "end", iid=str(index), values=("☑", path.name))
+            images.insert("", "end", iid=str(index), image=icons[True], values=(path.name,))
 
         def update_selection():
             selection_text.set(f"已选择 {sum(selected)} / {len(files)} 张")
@@ -850,7 +863,7 @@ class CropperApp:
         def select_all(value):
             for index, path in enumerate(files):
                 selected[index] = value
-                images.item(str(index), values=("☑" if value else "☐", path.name))
+                images.item(str(index), image=icons[value])
             update_selection()
 
         def toggle_image(event):
@@ -858,7 +871,7 @@ class CropperApp:
             if item:
                 index = int(item)
                 selected[index] = not selected[index]
-                images.item(item, values=("☑" if selected[index] else "☐", files[index].name))
+                images.item(item, image=icons[selected[index]])
                 images.focus(item)
                 images.selection_set(item)
                 images.focus_set()
