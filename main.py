@@ -818,12 +818,59 @@ class CropperApp:
             return
         popup = tk.Toplevel(self.root)
         popup.title("生成 GIF 动图")
-        popup.resizable(False, False)
+        popup.geometry(f"580x{min(680, self.root.winfo_screenheight() - 100)}")
+        popup.minsize(520, 500)
         popup.transient(self.root)
         popup.grab_set()
         frame = ttk.Frame(popup, padding=18)
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text=f"图片文件夹：{folder}\n检测到 {len(files)} 张图片，按文件名自然顺序播放。", wraplength=480).pack(anchor="w")
+        selection_row = ttk.Frame(frame)
+        selection_row.pack(fill="x", pady=(10, 5))
+        selected = [True] * len(files)
+        selection_text = tk.StringVar()
+        list_frame = ttk.Frame(frame)
+        list_frame.pack(fill="both", expand=True)
+        images = ttk.Treeview(list_frame, columns=("checked", "filename"), show="headings",
+                              selectmode="browse", height=1, name="gif_images")
+        images.heading("checked", text="选择")
+        images.heading("filename", text="图片名称（点击一行勾选 / 取消）")
+        images.column("checked", width=50, stretch=False, anchor="center")
+        images.column("filename", width=380, minwidth=180)
+        scroll = ttk.Scrollbar(list_frame, orient="vertical", command=images.yview)
+        images.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        images.pack(side="left", fill="both", expand=True)
+        for index, path in enumerate(files):
+            images.insert("", "end", iid=str(index), values=("☑", path.name))
+
+        def update_selection():
+            selection_text.set(f"已选择 {sum(selected)} / {len(files)} 张")
+
+        def select_all(value):
+            for index, path in enumerate(files):
+                selected[index] = value
+                images.item(str(index), values=("☑" if value else "☐", path.name))
+            update_selection()
+
+        def toggle_image(event):
+            item = images.focus() if event.keysym == "space" else images.identify_row(event.y)
+            if item:
+                index = int(item)
+                selected[index] = not selected[index]
+                images.item(item, values=("☑" if selected[index] else "☐", files[index].name))
+                images.focus(item)
+                images.selection_set(item)
+                images.focus_set()
+                update_selection()
+                return "break"
+
+        ttk.Button(selection_row, text="全选", command=lambda: select_all(True)).pack(side="left")
+        ttk.Button(selection_row, text="取消全选", command=lambda: select_all(False)).pack(side="left", padx=8)
+        ttk.Label(selection_row, textvariable=selection_text).pack(side="right")
+        images.bind("<Button-1>", toggle_image)
+        images.bind("<space>", toggle_image)
+        update_selection()
         row = ttk.Frame(frame)
         row.pack(fill="x", pady=(16, 8))
         duration_var = tk.StringVar(value="100")
@@ -839,6 +886,10 @@ class CropperApp:
         ttk.Label(frame, textvariable=error_text, foreground="#b42318", wraplength=480).pack(anchor="w", pady=8)
 
         def start():
+            chosen_files = [path for path, checked in zip(files, selected) if checked]
+            if len(chosen_files) < 2:
+                error_text.set("请至少选择 2 张图片；可点击“全选”或逐张勾选。")
+                return
             try:
                 duration = int(duration_var.get())
                 width = int(width_var.get())
@@ -848,7 +899,7 @@ class CropperApp:
                 error_text.set("请输入整数：每帧时长 20～10000 毫秒，宽度 0～65535 像素。")
                 return
             popup.destroy()
-            self.start_gif(folder, files, duration, width)
+            self.start_gif(folder, chosen_files, duration, width)
 
         ttk.Button(frame, text="生成 GIF", command=start).pack(side="right")
         ttk.Button(frame, text="取消", command=popup.destroy).pack(side="left")

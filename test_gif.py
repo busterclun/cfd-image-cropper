@@ -12,6 +12,53 @@ from main import CropperApp, find_images
 
 
 class GifTests(unittest.TestCase):
+    def test_dialog_all_and_selected_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            for name, color in (("1.png", "red"), ("2.png", "green"), ("10.png", "blue")):
+                with Image.new("RGB", (80, 60), color) as im:
+                    im.save(folder / name)
+            root = tk.Tk()
+            app = CropperApp(root, preset_path=folder / "settings.json")
+            try:
+                root.update()
+                app.open_gif_dialog(folder)
+                root.update()
+                popup = next(w for w in root.winfo_children() if isinstance(w, tk.Toplevel))
+                def descendants(widget):
+                    for child in widget.winfo_children():
+                        yield child
+                        yield from descendants(child)
+                widgets = list(descendants(popup))
+                tree = next(w for w in widgets if w.winfo_name() == "gif_images")
+                def button(text):
+                    return next(w for w in widgets if w.winfo_class() == "TButton" and w.cget("text") == text)
+                self.assertEqual([tree.item(i, "values")[1] for i in tree.get_children()], ["1.png", "2.png", "10.png"])
+                self.assertTrue(all(tree.item(i, "values")[0] == "☑" for i in tree.get_children()))
+                button("取消全选").invoke()
+                with patch.object(app, "start_gif") as start:
+                    button("生成 GIF").invoke()
+                    start.assert_not_called()
+                button("全选").invoke()
+                self.assertTrue(all(tree.item(i, "values")[0] == "☑" for i in tree.get_children()))
+                # 取消第二张，只保留第一张和第十张。
+                root.update()
+                x, y, w, h = tree.bbox("1")
+                tree.event_generate("<Button-1>", x=x+20, y=y+h//2)
+                root.update()
+                with patch.object(app, "start_gif") as start:
+                    button("生成 GIF").invoke()
+                    chosen = start.call_args.args[1]
+                    self.assertEqual([p.name for p in chosen], ["1.png", "10.png"])
+                output, count, issues = create_gif(folder, chosen)
+                with Image.open(output) as gif:
+                    self.assertEqual(gif.n_frames, 2)
+                    gif.seek(1)
+                    with gif.convert("RGB") as rgb:
+                        self.assertEqual(rgb.getpixel((0, 0)), (0, 0, 255))
+            finally:
+                app.close()
+
     def test_order_timing_resize_loop_and_no_overwrite(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
