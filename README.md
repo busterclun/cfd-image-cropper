@@ -8,7 +8,7 @@ Windows 本地桌面工具，使用 Python + Tkinter + Pillow。无登录、无�
 
 ## 直接使用
 
-完整中文操作说明：[使用说明.txt](docs/使用说明.txt)。分发给使用者时，只需要 EXE 和这份说明；无需下载源码、安装 Python 或配置开发环境。
+完整中文操作说明：[使用说明.txt](docs/使用说明.txt)。使用者时，只需要EXE和这份说明；无需下载源码、安装Python或配置开发环境。
 
 前往 [下载页（Releases）](https://github.com/busterclun/cfd-image-cropper/releases/latest)，下载 Windows-x64.zip，解压后双击 **批量图片裁剪工具.exe**。此 EXE 可单独复制到其他 Windows 64 位电脑使用，不需要安装 Python。GitHub 的 Source code 压缩包只包含源码，不包含 EXE。
 
