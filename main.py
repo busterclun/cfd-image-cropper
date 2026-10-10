@@ -12,6 +12,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageDraw, ImageTk
+from gif_export import create_gif
 
 
 EXTENSIONS = {".jpg", ".jpeg", ".png"}
@@ -302,6 +303,8 @@ class CropperApp:
         self.reset_button.pack(side="left")
         self.preview_button = ttk.Button(actions, text="预览裁剪结果", command=self.preview_crop)
         self.preview_button.pack(side="left", padx=10)
+        self.gif_button = ttk.Button(actions, text="图片转 GIF", command=self.select_gif_folder)
+        self.gif_button.pack(side="left")
         self.start_button = ttk.Button(actions, text="开始批量裁剪", command=self.start_batch)
         self.start_button.pack(side="right")
         self.progress = ttk.Progressbar(outer, maximum=100)
@@ -764,7 +767,7 @@ class CropperApp:
         self.aspect_combo.configure(state="disabled" if busy else "readonly")
         for button in (self.folder_button, self.reset_button, self.preview_button, self.start_button,
                        self.save_region_button, self.apply_region_button, self.aspect_button,
-                       self.width_entry, self.height_entry, self.apply_size_button):
+                       self.width_entry, self.height_entry, self.apply_size_button, self.gif_button):
             button.configure(state="disabled" if busy else "normal")
 
     def poll_events(self):
@@ -781,6 +784,12 @@ class CropperApp:
                     output, success, issues = data
                     self.status_text.set(f"处理完成：成功 {success} 张，跳过 / 失败 {len(issues)} 张。")
                     self.show_result(output, success, issues)
+                elif kind == "gif_done":
+                    self.set_busy(False)
+                    self.progress["value"] = 100
+                    output, success, issues = data
+                    self.status_text.set(f"GIF 已生成：{success} 帧，跳过 {len(issues)} 张。")
+                    self.show_result(output, success, issues, gif=True)
                 elif kind == "error":
                     self.set_busy(False)
                     self.status_text.set("任务未完成，请查看错误提示。")
@@ -789,15 +798,87 @@ class CropperApp:
             pass
         self.poll_job = self.root.after(100, self.poll_events)
 
-    def show_result(self, output, success, issues):
+    def select_gif_folder(self):
+        if self.busy:
+            return
+        folder = filedialog.askdirectory(title="选择用于生成 GIF 的图片文件夹", parent=self.root)
+        if folder:
+            self.open_gif_dialog(Path(folder))
+
+    def open_gif_dialog(self, folder):
+        if self.busy:
+            return
+        try:
+            files = find_images(folder)
+        except OSError as exc:
+            messagebox.showerror("无法读取文件夹", str(exc), parent=self.root)
+            return
+        if len(files) < 2:
+            messagebox.showinfo("图片不足", "至少需要 2 张 JPG / JPEG / PNG 图片才能生成动图。", parent=self.root)
+            return
         popup = tk.Toplevel(self.root)
-        popup.title("处理完成")
+        popup.title("生成 GIF 动图")
+        popup.resizable(False, False)
+        popup.transient(self.root)
+        popup.grab_set()
+        frame = ttk.Frame(popup, padding=18)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text=f"图片文件夹：{folder}\n检测到 {len(files)} 张图片，按文件名自然顺序播放。", wraplength=480).pack(anchor="w")
+        row = ttk.Frame(frame)
+        row.pack(fill="x", pady=(16, 8))
+        duration_var = tk.StringVar(value="100")
+        width_var = tk.StringVar(value="960")
+        ttk.Label(row, text="每帧时长（毫秒）：").pack(side="left")
+        ttk.Entry(row, textvariable=duration_var, width=8).pack(side="left")
+        row2 = ttk.Frame(frame)
+        row2.pack(fill="x", pady=(0, 12))
+        ttk.Label(row2, text="输出宽度（像素）：").pack(side="left")
+        ttk.Entry(row2, textvariable=width_var, width=8).pack(side="left")
+        ttk.Label(frame, text="100 毫秒 = 每秒 10 帧；数值越小播放越快。\n时长范围 20～10000 毫秒，按 10 毫秒取整。\n宽度 0 表示原尺寸；否则等比缩小，不放大。\nGIF 循环播放；每帧最多 256 色，透明区域使用白底。\n只合成此文件夹中的图片，不套用主界面的裁剪框。", foreground="#555555").pack(anchor="w")
+        error_text = tk.StringVar()
+        ttk.Label(frame, textvariable=error_text, foreground="#b42318", wraplength=480).pack(anchor="w", pady=8)
+
+        def start():
+            try:
+                duration = int(duration_var.get())
+                width = int(width_var.get())
+                if not 20 <= duration <= 10000 or not 0 <= width <= 65535:
+                    raise ValueError()
+            except ValueError:
+                error_text.set("请输入整数：每帧时长 20～10000 毫秒，宽度 0～65535 像素。")
+                return
+            popup.destroy()
+            self.start_gif(folder, files, duration, width)
+
+        ttk.Button(frame, text="生成 GIF", command=start).pack(side="right")
+        ttk.Button(frame, text="取消", command=popup.destroy).pack(side="left")
+
+    def start_gif(self, folder, files, duration, width):
+        if self.busy:
+            return
+        self.set_busy(True)
+        self.progress["value"] = 0
+        self.status_text.set("正在准备 GIF 图片…")
+
+        def worker():
+            try:
+                result = create_gif(folder, files, duration, width,
+                                    progress=lambda *p: self.events.put(("progress", p)))
+                self.events.put(("gif_done", result))
+            except Exception as exc:
+                self.events.put(("error", str(exc)))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def show_result(self, output, success, issues, gif=False):
+        popup = tk.Toplevel(self.root)
+        popup.title("GIF 已生成" if gif else "处理完成")
         popup.geometry("650x420" if issues else "650x230")
         popup.transient(self.root)
         popup.grab_set()
         frame = ttk.Frame(popup, padding=16)
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text=f"成功裁剪：{success} 张\n跳过 / 失败：{len(issues)} 张", font=("Microsoft YaHei UI", 11), justify="left").pack(anchor="w")
+        summary = f"已生成 GIF：{success} 帧" if gif else f"成功裁剪：{success} 张"
+        ttk.Label(frame, text=f"{summary}\n跳过 / 失败：{len(issues)} 张", font=("Microsoft YaHei UI", 11), justify="left").pack(anchor="w")
         ttk.Label(frame, text="输出位置：").pack(anchor="w", pady=(12, 4))
         path_var = tk.StringVar(value=str(output))
         entry = ttk.Entry(frame, textvariable=path_var, state="readonly")
@@ -818,11 +899,16 @@ class CropperApp:
 
         def open_output():
             try:
-                os.startfile(output)
+                os.startfile(output.parent if gif else output)
             except OSError as exc:
                 messagebox.showerror("无法打开文件夹", str(exc), parent=popup)
 
         ttk.Button(buttons, text="打开结果文件夹", command=open_output).pack(side="left")
+        if not gif and success >= 2:
+            def make_gif():
+                popup.destroy()
+                self.open_gif_dialog(output)
+            ttk.Button(buttons, text="用裁剪结果生成 GIF", command=make_gif).pack(side="left", padx=10)
         ttk.Button(buttons, text="关闭", command=popup.destroy).pack(side="right")
 
     def close(self):
