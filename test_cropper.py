@@ -29,6 +29,46 @@ class CropTests(unittest.TestCase):
         shown = fit_image(size, (937, 501))
         self.assertEqual(display_to_pixel(shown[0] + 10, shown[1] + 20, (10, 20), shown, size), size)
 
+    def test_reference_image_dimensions_and_persistence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            reference = Path(tmp) / "reference.png"
+            root = tk.Tk()
+            app = CropperApp(root)
+            try:
+                root.update()
+                app.original = Image.new("RGB", (1920, 1080))
+                app.folder, app.files = Path(tmp), [reference]
+                app.render_image()
+                for size, expected in (((640, 480), (640, 480)), ((3840, 2160), (1920, 1080))):
+                    with Image.new("RGB", size) as im:
+                        im.save(reference)
+                    with patch("main.filedialog.askopenfilename", return_value=str(reference)), patch("main.messagebox.showinfo") as info:
+                        app.import_reference_image()
+                    self.assertEqual((app.box[2]-app.box[0], app.box[3]-app.box[1]), expected)
+                    self.assertEqual(app.saved_region["box"], app.box)
+                    self.assertTrue(app.aspect_locked.get())
+                    self.assertEqual(app.aspect_choice.get(), "4:3" if size[0] == 640 else "16:9")
+                    if size[0] == 3840:
+                        self.assertIn("等比例缩小", info.call_args.args[1])
+                before = self.preset_path.read_bytes()
+                reference.write_bytes(b"broken")
+                with patch("main.filedialog.askopenfilename", return_value=str(reference)), patch("main.messagebox.showerror") as error:
+                    app.import_reference_image()
+                    error.assert_called_once()
+                self.assertEqual(self.preset_path.read_bytes(), before)
+            finally:
+                app.close()
+            root = tk.Tk()
+            app = CropperApp(root)
+            try:
+                app.original = Image.new("RGB", (1920, 1080))
+                app.render_image()
+                app.apply_saved_region()
+                self.assertEqual(app.box, (0, 0, 1920, 1080))
+                self.assertEqual(app.aspect_ratio, (16, 9))
+            finally:
+                app.close()
+
     def test_editable_dimensions_and_ratio(self):
         root = tk.Tk()
         app = CropperApp(root)

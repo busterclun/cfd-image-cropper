@@ -305,6 +305,8 @@ class CropperApp:
         self.preview_button.pack(side="left", padx=10)
         self.gif_button = ttk.Button(actions, text="图片转 GIF", command=self.select_gif_folder)
         self.gif_button.pack(side="left")
+        self.reference_button = ttk.Button(actions, text="导入参考图片", command=self.import_reference_image)
+        self.reference_button.pack(side="left", padx=10)
         self.start_button = ttk.Button(actions, text="开始批量裁剪", command=self.start_batch)
         self.start_button.pack(side="right")
         self.progress = ttk.Progressbar(outer, maximum=100)
@@ -666,6 +668,50 @@ class CropperApp:
         width, height = self.saved_region["image_size"]
         self.preset_text.set(f"已保存：X {left}～{right}，Y {top}～{bottom}；输出 {right-left} × {bottom-top} px；基准 {width} × {height} px")
 
+    def import_reference_image(self):
+        if self.busy:
+            return
+        if not self.original:
+            messagebox.showinfo("提示", "请先选择待裁剪的图片文件夹，再导入参考图片。", parent=self.root)
+            return
+        selected = filedialog.askopenfilename(title="选择参考图片（读取尺寸与比例）", parent=self.root,
+                                             filetypes=[("JPG / PNG 图片", "*.jpg *.jpeg *.png"), ("所有文件", "*.*")])
+        if not selected:
+            return
+        try:
+            with Image.open(selected) as reference:
+                if reference.format not in {"JPEG", "PNG"}:
+                    raise ValueError("请选择 JPG / JPEG / PNG 图片。")
+                rw, rh = reference.size
+                reference.load()
+        except Exception as exc:
+            messagebox.showerror("参考图片读取失败", str(exc), parent=self.root)
+            return
+        iw, ih = self.original.size
+        scale = min(1, iw / rw, ih / rh)
+        width, height = max(1, round(rw * scale)), max(1, round(rh * scale))
+        left, top = self.box[:2] if self.box else ((iw - width) // 2, (ih - height) // 2)
+        left, top = min(left, iw - width), min(top, ih - height)
+        self.box = (left, top, left + width, top + height)
+        self.anchor = self.move_box = self.resize_box = self.resize_handle = None
+        divisor = math.gcd(rw, rh)
+        self.aspect_ratio = (rw // divisor, rh // divisor)
+        self.aspect_locked.set(True)
+        self.aspect_choice.set(next((name for name, ratio in ASPECT_PRESETS.items()
+                                     if ratio == self.aspect_ratio), "当前选框比例"))
+        ratio_text = f"{self.aspect_ratio[0]}:{self.aspect_ratio[1]}"
+        self.aspect_text.set(f"锁定纵横比（{ratio_text}）")
+        self.draw_selection()
+        saved = self.save_crop_region()
+        summary = f"参考图：{rw} × {rh} px，比例 {ratio_text}。\n选框：{width} × {height} px。"
+        if scale < 1:
+            summary += "\n参考图尺寸超过当前原图，选框已等比例缩小。"
+        summary += ("\n已自动保存，替换之前保存的固定区域。" if saved
+                    else "\n当前选框已应用，但未能保存，请稍后点击“保存裁剪区域”重试。")
+        summary += "\n可在框内拖动调整位置；调整后点击“保存裁剪区域”更新。"
+        self.status_text.set(f"参考图 {rw} × {rh} → 选框 {width} × {height} px；" + ("已保存。" if saved else "未保存。"))
+        messagebox.showinfo("已导入参考图片", summary, parent=self.root)
+
     def save_crop_region(self):
         if self.busy or not self.check_ready():
             return
@@ -680,6 +726,7 @@ class CropperApp:
         self.saved_region = data
         self.update_preset_text()
         self.status_text.set("已保存当前区域。换文件夹或重启后，加载同尺寸图片时会自动恢复。")
+        return True
 
     def apply_saved_region(self):
         if self.busy:
@@ -767,7 +814,8 @@ class CropperApp:
         self.aspect_combo.configure(state="disabled" if busy else "readonly")
         for button in (self.folder_button, self.reset_button, self.preview_button, self.start_button,
                        self.save_region_button, self.apply_region_button, self.aspect_button,
-                       self.width_entry, self.height_entry, self.apply_size_button, self.gif_button):
+                       self.width_entry, self.height_entry, self.apply_size_button, self.gif_button,
+                       self.reference_button):
             button.configure(state="disabled" if busy else "normal")
 
     def poll_events(self):
